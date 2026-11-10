@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KNDS</string>
+    <string name="subtitle">Emulador de DS · núcleo melonDS</string>
+    <string name="open_rom">Abrir ROM (.nds / .zip)</string>
+    <string name="recent">Recientes</string>
+    <string name="no_recent">Todavía no has abierto ningún juego.</string>
+    <string name="system_files">Archivos de sistema (opcional)</string>
+    <string name="bios9">BIOS ARM9</string>
+    <string name="bios7">BIOS ARM7</string>
+    <string name="firmware">Firmware</string>
+    <string name="clear_system">Quitar</string>
+    <string name="sys_free">Sin archivos de sistema: se usan la BIOS y el firmware libres de melonDS con arranque directo (funciona con casi todos los juegos).</string>
+    <string name="sys_real">BIOS reales cargadas%1$s.</string>
+    <string name="sys_fw"> y firmware</string>
+    <string name="sys_partial">Faltan archivos: hacen falta las dos BIOS para usarlas. Mientras tanto se usan las libres.</string>
+    <string name="bad_size">Tamaño incorrecto para %1$s (se esperaba %2$s).</string>
+    <string name="jit">Recompilador JIT (mucho más rápido)</string>
+    <string name="jit_hint">Si un juego se cuelga o se ve mal, prueba a desactivarlo.</string>
+    <string name="threaded3d">3D en un hilo aparte</string>
+    <string name="loading">Cargando…</string>
+    <string name="rom_error">No se pudo abrir la ROM: %1$s</string>
+    <string name="menu_title">Pausa</string>
+    <string name="resume">Continuar</string>
+    <string name="save_state">Guardar estado</string>
+    <string name="load_state">Cargar estado</string>
+    <string name="fast_forward">Avance rápido</string>
+    <string name="toggle_sound">Sonido</string>
+    <string name="toggle_pad">Mostrar controles táctiles</string>
+    <string name="swap_screens">Intercambiar pantallas</string>
+    <string name="lid">Cerrar la tapa</string>
+    <string name="reset">Reiniciar</string>
+    <string name="exit">Salir</string>
+    <string name="state_saved">Estado guardado</string>
+    <string name="state_loaded">Estado cargado</string>
+    <string name="state_missing">No hay estado guardado para este juego</string>
+    <string name="state_error">No se pudo cargar el estado</string>
+</resources>

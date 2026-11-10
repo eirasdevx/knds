@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icono KNDS: consola de dos pantallas, plana y minimalista, de la misma familia que KGBA.
+     Lienzo de icono adaptable de 108 dp; todo cabe en el círculo seguro de 66 dp del centro. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- sombra suave -->
+    <path android:fillColor="#26A3281F"
+        android:pathData="M39,28.5 H69 A5,5 0 0 1 74,33.5 V80.5 A5,5 0 0 1 69,85.5 H39 A5,5 0 0 1 34,80.5 V33.5 A5,5 0 0 1 39,28.5 Z" />
+    <!-- tapa -->
+    <path android:fillColor="#E8322B"
+        android:pathData="M39,26 H69 A5,5 0 0 1 74,31 V53 H34 V31 A5,5 0 0 1 39,26 Z" />
+    <!-- bisagra -->
+    <path android:fillColor="#B8231D"
+        android:pathData="M34,53 H74 V56 H34 Z" />
+    <!-- base -->
+    <path android:fillColor="#E8322B"
+        android:pathData="M34,56 H74 V78 A5,5 0 0 1 69,83 H39 A5,5 0 0 1 34,78 Z" />
+    <!-- pantalla superior -->
+    <path android:fillColor="#2B2A33"
+        android:pathData="M43.5,30 H64.5 A2.5,2.5 0 0 1 67,32.5 V47.5 A2.5,2.5 0 0 1 64.5,50 H43.5 A2.5,2.5 0 0 1 41,47.5 V32.5 A2.5,2.5 0 0 1 43.5,30 Z" />
+    <path android:fillColor="#A8E0D0"
+        android:pathData="M44.5,32.5 H63.5 A1,1 0 0 1 64.5,33.5 V46.5 A1,1 0 0 1 63.5,47.5 H44.5 A1,1 0 0 1 43.5,46.5 V33.5 A1,1 0 0 1 44.5,32.5 Z" />
+    <path android:fillColor="#40FFFFFF"
+        android:pathData="M44.5,32.5 H53 L46,47.5 H44.5 A1,1 0 0 1 43.5,46.5 V33.5 A1,1 0 0 1 44.5,32.5 Z" />
+    <!-- pantalla táctil -->
+    <path android:fillColor="#2B2A33"
+        android:pathData="M46,59 H62 A2,2 0 0 1 64,61 V74 A2,2 0 0 1 62,76 H46 A2,2 0 0 1 44,74 V61 A2,2 0 0 1 46,59 Z" />
+    <path android:fillColor="#A8E0D0"
+        android:pathData="M47,61 H61 A0.8,0.8 0 0 1 61.8,61.8 V73.2 A0.8,0.8 0 0 1 61,74 H47 A0.8,0.8 0 0 1 46.2,73.2 V61.8 A0.8,0.8 0 0 1 47,61 Z" />
+    <!-- cruceta -->
+    <path android:fillColor="#FFF4EC"
+        android:pathData="M38.4,62 H40.6 V64.4 H43 V66.6 H40.6 V69 H38.4 V66.6 H36 V64.4 H38.4 Z" />
+    <!-- botones A/B/X/Y -->
+    <path android:fillColor="#FFF4EC"
+        android:pathData="M69.5,62.5 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" />
+    <path android:fillColor="#FFF4EC"
+        android:pathData="M69.5,68.5 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" />
+    <path android:fillColor="#FFF4EC"
+        android:pathData="M66.5,65.5 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" />
+    <path android:fillColor="#FFF4EC"
+        android:pathData="M72.5,65.5 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" />
+</vector>
