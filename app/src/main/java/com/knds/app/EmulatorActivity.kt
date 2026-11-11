@@ -2,6 +2,7 @@ package com.knds.app
 
 import android.Manifest
 import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -68,6 +69,7 @@ class EmulatorActivity : Activity() {
         pad.buttonsVisible = prefs.getBoolean("pad", true)
         pad.swapped = prefs.getBoolean("swap", false)
         pad.skin = prefs.getBoolean("skin", true)
+        applySplit(prefs.getBoolean("split", false))
         keymap = Keymap.custom(this)
         val root = FrameLayout(this)
         root.setBackgroundColor(0xFF000000.toInt())
@@ -83,7 +85,6 @@ class EmulatorActivity : Activity() {
 
         val uri = intent.data
         if (uri == null) { finish(); return }
-        loadBackdrop(uri.toString())
 
         // Copiar la ROM y arrancar melonDS lleva un momento: fuera del hilo de la interfaz
         Thread {
@@ -109,16 +110,6 @@ class EmulatorActivity : Activity() {
                     finish()
                 }
             }
-        }.start()
-    }
-
-    /** Fondo detrás de la consola: la carátula del juego desenfocada (si ya está descargada). */
-    private fun loadBackdrop(uri: String) {
-        Thread {
-            val blurred = runCatching {
-                CoverStore.file(this, uri)?.let { BitmapFactory.decodeFile(it.path) }?.let { GamepadView.softBlur(it) }
-            }.getOrNull()
-            if (blurred != null) runOnUiThread { if (!isDestroyed) pad.backdrop = blurred }
         }.start()
     }
 
@@ -308,6 +299,10 @@ class EmulatorActivity : Activity() {
         quick.addView(ui.button("Cargar · ranura $slot") { d.dismiss(); loadSlot(slot) },
             LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(ui.dp(4), ui.dp(6), 0, ui.dp(6)) })
         body.addView(quick)
+        val split = ScreenLayout.split
+        body.addView(ui.button(if (split) "Pantalla completa ✓  ·  volver a los controles" else "Pantalla completa (vertical, pantallas mitad y mitad)") {
+            d.dismiss(); toggleSplit()
+        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = ui.dp(6) })
         body.addView(ui.section("OPCIONES DEL JUEGO"))
         groups.forEach { (category, actions) ->
             val (subtitle, icon) = descriptions[category] ?: ("" to "›")
@@ -323,6 +318,28 @@ class EmulatorActivity : Activity() {
             .setNegativeButton("Volver al menú") { _, _ -> backToMenu = true }) {
             if (backToMenu) window.decorView.post { showMenu() }
         }
+    }
+
+    /**
+     * Pantalla completa: obliga a jugar en vertical con la pantalla superior en la mitad de arriba
+     * del móvil y la táctil en la de abajo. El menú se abre manteniendo pulsada la mitad superior
+     * o con el gesto de atrás.
+     */
+    private fun applySplit(on: Boolean) {
+        ScreenLayout.split = on
+        requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        pad.releaseInputs()
+        emu?.keys = 0
+        pad.relayout()
+        if (::bootView.isInitialized) bootView.invalidate()
+    }
+
+    private fun toggleSplit() {
+        val on = !ScreenLayout.split
+        prefs.edit().putBoolean("split", on).apply()
+        applySplit(on)
+        Toast.makeText(this, if (on) "Pantalla completa: mantén pulsada la pantalla de arriba para abrir el menú"
+            else "Controles táctiles de nuevo visibles", Toast.LENGTH_LONG).show()
     }
 
     private fun toggleFastForward() {

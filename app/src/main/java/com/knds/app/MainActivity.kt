@@ -714,7 +714,10 @@ class MainActivity : Activity() {
                 RomStore.SystemFile.values().forEach { RomStore.systemFile(this, it).delete() }; render(true)
             })
         content.addView(ui.mono("KNDS ${BuildConfig.VERSION_NAME} · compilación ${BuildConfig.VERSION_CODE}", 10, AppUi.OUTLINE).apply {
-            gravity = Gravity.CENTER; setPadding(0, ui.dp(28), 0, ui.dp(8))
+            gravity = Gravity.CENTER; setPadding(0, ui.dp(28), 0, 0)
+        })
+        content.addView(ui.mono("Creado por eiras.devx", 10, AppUi.OUTLINE).apply {
+            gravity = Gravity.CENTER; setPadding(0, ui.dp(4), 0, ui.dp(8))
         })
     }
 

@@ -8,6 +8,8 @@
     <!-- Micrófono real (opcional): algunos juegos piden soplar o hablar -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Carátulas y nombres oficiales (base de datos y miniaturas de libretro) -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"

@@ -7,8 +7,8 @@ import android.graphics.Rect
  * y la animación de arranque, así que todos coinciden al píxel.
  *
  * Con carcasa:
- * - Vertical: consola negra de una pieza que flota centrada sobre el fondo. Arriba la franja
- *   del altavoz, la pantalla superior con su marco, una ranura fina y la pantalla táctil; los
+ * - Vertical: consola plegable a toda la vista (como la carcasa clásica de KGBA). Arriba la tapa
+ *   con la pantalla superior en su marco, luego la bisagra y la base con la pantalla táctil; los
  *   controles van debajo.
  * - Horizontal: las dos pantallas apiladas en el centro dentro de un marco negro; los controles a
  *   los lados.
@@ -20,6 +20,12 @@ import android.graphics.Rect
 object ScreenLayout {
     /** Zona de la cámara en píxeles de la vista. La rellena [GameWindow]. */
     @Volatile var cutout = Rect()
+
+    /**
+     * Pantalla completa (solo en vertical): la pantalla superior ocupa la mitad de arriba del móvil
+     * y la táctil la mitad de abajo, estiradas a lo ancho, sin carcasa ni controles.
+     */
+    @Volatile var split = false
 
     /** Horizontal: márgenes del marco único que rodea las dos pantallas. */
     const val LAND_SIDE = 0.06f
@@ -52,15 +58,17 @@ object ScreenLayout {
      * Proporciones de la consola vertical, en fracción del ancho del cuerpo: una pieza negra mate
      * con la franja de altavoz arriba, dos pantallas 4:3 con su marco y una ranura fina entre ellas.
      */
-    private const val TOP_STRIP = 0.112f
+    private const val TOP_STRIP = 0.07f
     private const val BEZEL_SIDE = 0.076f
     private const val SCREEN_W = 0.776f
     private const val BEZEL_TOP = 0.033f
     private const val BEZEL_BOTTOM = 0.04f
-    private const val SLIT = 0.034f
+    /** Franja inferior del marco superior, donde va el logotipo. */
+    private const val BRAND_STRIP = 0.075f
+    /** Bisagra entre la tapa (pantalla superior) y la base (pantalla táctil). */
+    private const val HINGE = 0.06f
     /** Alto mínimo del cuerpo (con la zona de controles) respecto a su ancho. */
     private const val BODY_MIN = 2.17f
-    private const val BODY_MAX = 2.4f
 
     fun compute(w: Int, h: Int, swapped: Boolean, skin: Boolean, top: Rect, bottom: Rect) {
         val g = Geometry()
@@ -79,6 +87,13 @@ object ScreenLayout {
         g.hingeH = 0f; g.hingeY = 0f; g.controlsTop = h.toFloat()
         g.device.set(0f, 0f, w.toFloat(), h.toFloat())
         g.upperBezel.setEmpty(); g.lowerBezel.setEmpty()
+        if (split && portrait) {
+            // mitad y mitad: la de arriba esquiva la cámara y la de abajo la barra de gestos
+            val mid = h / 2
+            g.upper.set(ox, oy, ox + sw.toInt(), mid)
+            g.lower.set(ox, mid, ox + sw.toInt(), h - safe.bottom)
+            return
+        }
         if (!skin) {
             var scale = if (portrait) minOf(sw / 256f, sh * 0.66f / 384f) else minOf(sh / 384f, sw * 0.5f / 256f)
             if (scale >= 2f) scale = kotlin.math.floor(scale * 4f) / 4f
@@ -91,23 +106,23 @@ object ScreenLayout {
             return
         }
         if (portrait) {
-            // El cuerpo flota centrado sobre el fondo; si sobra alto, crece la zona de controles.
-            val u = minOf(sw * 0.76f, sh * 0.95f / BODY_MIN)
-            val hd = minOf(sh * 0.95f, u * BODY_MAX)
+            // La carcasa ocupa toda la vista; [device] es la columna centrada donde van pantallas y
+            // controles. Si sobra alto, crece la zona de controles.
+            val u = minOf(sw, sh / BODY_MIN)
             val dl = ox + (sw - u) / 2f
-            val dt = oy + (sh - hd) / 2f
-            g.device.set(dl, dt, dl + u, dt + hd)
+            val dt = oy.toFloat()
+            g.device.set(dl, dt, dl + u, oy + sh)
             val ww = (u * SCREEN_W).toInt(); val hh = ww * 3 / 4
             val left = (dl + (u - ww) / 2f).toInt()
             val bezelL = dl + u * BEZEL_SIDE; val bezelR = dl + u * (1f - BEZEL_SIDE)
             val upperBezelTop = dt + u * TOP_STRIP
             val upperTop = (upperBezelTop + u * BEZEL_TOP).toInt()
             g.upper.set(left, upperTop, left + ww, upperTop + hh)
-            val upperBezelBottom = g.upper.bottom + u * BEZEL_BOTTOM
+            val upperBezelBottom = g.upper.bottom + u * BRAND_STRIP
             g.upperBezel.set(bezelL, upperBezelTop, bezelR, upperBezelBottom)
-            val lowerBezelTop = upperBezelBottom + u * SLIT
+            val lowerBezelTop = upperBezelBottom + u * HINGE
             g.hingeY = (upperBezelBottom + lowerBezelTop) / 2f
-            g.hingeH = u * SLIT
+            g.hingeH = u * HINGE * 0.62f
             val lowerTop = (lowerBezelTop + u * BEZEL_BOTTOM).toInt()
             g.lower.set(left, lowerTop, left + ww, lowerTop + hh)
             g.lowerBezel.set(bezelL, lowerBezelTop, bezelR, g.lower.bottom + u * BEZEL_BOTTOM)

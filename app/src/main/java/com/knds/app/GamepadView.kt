@@ -2,7 +2,6 @@ package com.knds.app
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.CornerPathEffect
@@ -22,12 +21,12 @@ import kotlin.math.hypot
 /**
  * Consola dibujada y mando táctil.
  *
- * - Vertical: una consola negra mate de una pieza que flota sobre la carátula del juego
- *   desenfocada. Arriba la franja del altavoz y la cámara; luego la pantalla superior, una ranura
- *   fina (el micrófono: mantener para soplar) y la pantalla táctil. Debajo, L/R en las esquinas,
- *   cruceta, A/B/X/Y en rombo, START y SELECT abajo a los lados y la tecla cuadrada del centro,
- *   que abre el menú. Junto a ella, en tono discreto: guardar, cargar, intercambiar pantallas y
- *   avance rápido.
+ * Con carcasa sigue el estilo de la carcasa clásica de KGBA (cuerpo con volumen, canto oscuro y
+ * brillo, marco con reflejo y logotipo, LED POWER y botones en relieve con rótulos grabados) con
+ * los elementos de la DS:
+ * - Vertical: consola plegable. Tapa con la pantalla superior y los altavoces a los lados,
+ *   bisagra con el micrófono en el centro (mantener para soplar) y base con la pantalla táctil.
+ *   Debajo, L/R en las esquinas, cruceta, A/B/X/Y en rombo y la fila START · accesos · SELECT.
  * - Horizontal: pantallas apiladas en un marco negro en el centro y controles a los lados.
  *
  * Los toques sobre la pantalla táctil (que no caigan en un control) se envían como lápiz.
@@ -49,9 +48,6 @@ class GamepadView(context: Context) : View(context) {
         set(v) { field = v; invalidate() }
     var fastForward = false
         set(v) { field = v; invalidate() }
-    /** Fondo detrás de la consola vertical (la carátula ya desenfocada); null = degradado. */
-    var backdrop: Bitmap? = null
-        set(v) { field = v; invalidate() }
 
     companion object {
         const val ACT_MENU = 0
@@ -63,13 +59,6 @@ class GamepadView(context: Context) : View(context) {
         /** Micrófono: se mantiene pulsado (soplar). */
         const val ACT_MIC = 6
         private const val ACCENT = 0xFFD2BBFF.toInt()
-
-        /** Desenfoque barato: se reduce mucho y se vuelve a ampliar con suavizado en dos pasos. */
-        fun softBlur(src: Bitmap): Bitmap {
-            val ratio = src.height.toFloat() / src.width
-            fun scaled(b: Bitmap, w: Int) = Bitmap.createScaledBitmap(b, w, maxOf(1, (w * ratio).toInt()), true)
-            return scaled(scaled(scaled(src, 14), 56), 168)
-        }
     }
 
     private enum class Shape { ROUND, PILL, DOT }
@@ -94,8 +83,22 @@ class GamepadView(context: Context) : View(context) {
     private var toolDown = -1
     private var micHeld = false
     private var portrait = true
-    /** Vertical con carcasa: la consola negra flotante. */
-    private val floating get() = skin && portrait
+    /** Vertical con carcasa: la consola plegable. */
+    private val floating get() = skin && portrait && !split
+    /** Pantalla completa: pantallas mitad y mitad, nada dibujado encima. */
+    private val split get() = ScreenLayout.split && portrait
+    /** En el pantalla completa, mantener pulsada la pantalla superior abre el menú. */
+    private val openMenu = Runnable {
+        menuPending = false
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        onAction(ACT_MENU)
+    }
+    private var menuPending = false
+    private var menuDownX = 0f
+    private var menuDownY = 0f
+    private var ledX = 0f
+    private var ledY = 0f
+    private var ledR = 0f
 
     fun relayout() { if (width > 0) onSizeChanged(width, height, width, height); invalidate() }
 
@@ -103,11 +106,13 @@ class GamepadView(context: Context) : View(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         buttons.clear(); tools.clear(); capsules.clear()
+        ledR = 0f
         if (w == 0 || h == 0) return
         portrait = h >= w
         ScreenLayout.layout(w, h, skin, geo)
         touchScreen.set(if (swapped) geo.upper else geo.lower)
         when {
+            split -> layoutSplit(w, h)
             floating -> layoutConsole()
             portrait -> layoutPortrait(w, h)
             else -> layoutLandscape(w, h)
@@ -159,6 +164,8 @@ class GamepadView(context: Context) : View(context) {
         val shTop = c + u * 0.03f; val shBottom = c + u * 0.105f
         buttons += Btn(Keys.L, "L", RectF(d.left + u * 0.026f, shTop, d.left + u * 0.148f, shBottom), Shape.PILL)
         buttons += Btn(Keys.R, "R", RectF(d.right - u * 0.148f, shTop, d.right - u * 0.026f, shBottom), Shape.PILL)
+        // LED de encendido bajo R
+        ledX = d.right - u * 0.06f; ledY = shBottom + u * 0.045f; ledR = u * 0.012f
         // cruceta y rombo a la misma altura
         padR = u * 0.172f
         padX = d.left + u * 0.25f
@@ -171,9 +178,21 @@ class GamepadView(context: Context) : View(context) {
         dot(Keys.SELECT, "SELECT", d.left + u * 0.778f, rowY, dotSize)
         // cápsula de accesos entre START y SELECT, con el menú destacado en el centro
         capsule(d.centerX(), rowY, u * 0.074f, intArrayOf(ACT_LOAD, ACT_SAVE, ACT_MENU, ACT_SWAP, ACT_FF))
-        // la ranura entre las pantallas es el micrófono
-        micRect.set(d.centerX() - u * 0.04f, geo.hingeY - u * 0.005f, d.centerX() + u * 0.04f, geo.hingeY + u * 0.005f)
+        // el micrófono va en el centro de la bisagra, como en la DS
+        micRect.set(d.centerX() - u * 0.045f, geo.hingeY - geo.hingeH * 0.3f, d.centerX() + u * 0.045f, geo.hingeY + geo.hingeH * 0.3f)
         tools += Tool(ACT_MIC, micRect)
+    }
+
+    /**
+     * Pantalla completa: solo la barra de accesos, centrada al pie de la pantalla superior (que no
+     * es táctil), justo encima de la división.
+     */
+    private fun layoutSplit(w: Int, h: Int) {
+        val safe = ScreenLayout.safe(w, h)
+        val sw = w - safe.left - safe.right
+        val toolH = minOf(44 * resources.displayMetrics.density, h * 0.05f, sw / 8.5f)
+        val cy = geo.upper.bottom - toolH * 0.5f - toolH * 0.35f
+        capsule(safe.left + sw / 2f, cy, toolH, intArrayOf(ACT_LOAD, ACT_SAVE, ACT_SLOT, ACT_MENU, ACT_SWAP, ACT_FF))
     }
 
     /** Vertical sin carcasa: pantallas arriba, controles translúcidos y barra de accesos al pie. */
@@ -220,6 +239,7 @@ class GamepadView(context: Context) : View(context) {
         val shW = k * 0.27f; val shH = k * 0.09f
         buttons += Btn(Keys.L, "L", RectF(lx - shW / 2, y(0.05f), lx + shW / 2, y(0.05f) + shH), Shape.PILL)
         buttons += Btn(Keys.R, "R", RectF(rx - shW / 2, y(0.05f), rx + shW / 2, y(0.05f) + shH), Shape.PILL)
+        if (skin) { ledX = rx + k * 0.12f; ledY = y(0.05f) + shH + k * 0.065f; ledR = k * 0.014f }
         padX = lx; padY = y(0.44f); padR = k * 0.165f
         diamond(rx, y(0.42f), k * 0.068f)
         dot(Keys.START, "START", rx - k * 0.12f, y(0.70f), k * 0.06f)
@@ -239,30 +259,33 @@ class GamepadView(context: Context) : View(context) {
     private val shellRect = RectF()
     private val shellPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val bodyShadow = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val sideKeyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val glossPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val bezelPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bezelEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val lcdEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFF050506.toInt() }
+    private val bezelShine = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x10FFFFFF }
+    private val lcdEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFF2E2E34.toInt() }
     private val holePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val holeRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val slitPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val backdropPaint = Paint(Paint.FILTER_BITMAP_FLAG)
-    private val gradientBackdrop = Paint()
-    private val veil = Paint().apply { color = 0x26000000 }
-    private val keyShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66000000 }
+    private val holeLight = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val hingePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val seamPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val ledPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF5BE35B.toInt() }
+    private val ledGlow = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val dropShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x45000000 }
     private val keyFace = Paint(Paint.ANTI_ALIAS_FLAG)
     private val keyEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val keyPressed = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val keyLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textAlign = Paint.Align.CENTER; typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+    private val pressShade = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x2A000000 }
+    private val engrave = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
     }
+    private val engraveLight = Paint(engrave)
     private val shellLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textAlign = Paint.Align.LEFT; typeface = Typeface.create("sans-serif", Typeface.NORMAL); letterSpacing = 0.06f
+        textAlign = Paint.Align.LEFT; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
     }
-    private val arrowStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val shellLabelShadow = Paint(shellLabel)
+    private val arrowStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND }
     private val brandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD_ITALIC)
+        color = 0xFFD2D2DA.toInt()
     }
     private val micHole = Paint(Paint.ANTI_ALIAS_FLAG)
     private val capFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xEB141417.toInt() }
@@ -288,7 +311,6 @@ class GamepadView(context: Context) : View(context) {
     private val shape = Path()
     private val drawRect = RectF()
     private var toolIcon = 0
-    private var mutedIcon = 0
 
     private fun shade(c: Int, f: Float) = Color.rgb((Color.red(c) * f).toInt().coerceIn(0, 255),
         (Color.green(c) * f).toInt().coerceIn(0, 255), (Color.blue(c) * f).toInt().coerceIn(0, 255))
@@ -301,47 +323,50 @@ class GamepadView(context: Context) : View(context) {
         shellColor = ConsoleStyle.shell(context)
         buttonColor = ConsoleStyle.buttons(context)
         val density = resources.displayMetrics.density
-        val dark = luminance(shellColor) < 120
+        val darkShell = luminance(shellColor) < 70
+        // carcasa a toda la vista con volumen: degradado, canto grueso oscuro y brillo interior
+        unit = if (floating) geo.device.width() * 0.025f else minOf(w, h) * 0.025f
+        val base = minOf(w, h) * 0.025f
+        shellRect.set(base * 0.5f, base * 0.5f, w - base * 0.5f, h - base * 0.5f)
+        shellPaint.shader = LinearGradient(0f, 0f, 0f, h, lighten(shellColor, 0.12f), shade(shellColor, 0.84f), Shader.TileMode.CLAMP)
+        rimPaint.color = if (darkShell) lighten(shellColor, 0.1f) else shade(shellColor, 0.42f)
+        rimPaint.strokeWidth = base * 0.9f
+        glossPaint.strokeWidth = base * 0.3f
+        glossPaint.shader = LinearGradient(0f, shellRect.top, 0f, shellRect.top + h * 0.45f,
+            0x70FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+        // marco oscuro de las pantallas (sobre una carcasa negra, algo más claro para que se vea)
+        val bezelTop = if (darkShell) lighten(shellColor, 0.07f) else 0xFF1E1D23.toInt()
+        val bezelBottom = if (darkShell) shade(shellColor, 0.55f) else 0xFF0B0B0E.toInt()
+        bezelPaint.shader = LinearGradient(0f, 0f, 0f, h, bezelTop, bezelBottom, Shader.TileMode.CLAMP)
+        bezelEdge.color = if (darkShell) 0x30FFFFFF else 0x40000000
+        bezelEdge.strokeWidth = maxOf(1f, density)
+        lcdEdge.strokeWidth = maxOf(2f, unit * 0.3f)
+        // agujeros del altavoz y del micrófono hundidos en la carcasa
+        holePaint.color = shade(shellColor, if (darkShell) 0.35f else 0.42f)
+        holeLight.color = alpha(lighten(shellColor, 0.3f), 0x70)
+        // bisagra: cilindro con degradado y juntas oscuras
         if (floating) {
-            val d = geo.device
-            unit = d.width() * 0.025f
-            shellRect.set(d)
-            shellPaint.shader = LinearGradient(0f, d.top, 0f, d.bottom,
-                lighten(shellColor, 0.06f), shade(shellColor, 0.88f), Shader.TileMode.CLAMP)
-            rimPaint.color = if (dark) alpha(lighten(shellColor, 0.22f), 0x80) else alpha(shade(shellColor, 0.6f), 0xA0)
-            rimPaint.strokeWidth = maxOf(1f, density * 1.2f)
-            bodyShadow.color = 0x59000000
-            sideKeyPaint.color = shade(shellColor, 0.82f)
-            bezelPaint.color = if (dark) shade(shellColor, 0.62f) else 0xFF1A1B1F.toInt()
-            bezelEdge.color = if (dark) alpha(lighten(shellColor, 0.12f), 0x90) else 0x40000000
-            bezelEdge.strokeWidth = maxOf(1f, density)
-            holePaint.color = if (dark) shade(shellColor, 0.38f) else shade(shellColor, 0.5f)
-            holeRing.color = alpha(lighten(shellColor, 0.2f), 0x70); holeRing.strokeWidth = maxOf(1f, density * 0.8f)
-            slitPaint.color = if (dark) shade(shellColor, 0.4f) else shade(shellColor, 0.55f)
-            gradientBackdrop.shader = LinearGradient(0f, 0f, w, h,
-                intArrayOf(0xFFB9A3D9.toInt(), 0xFFE7A882.toInt(), 0xFF7BB8C8.toInt(), 0xFF96C98E.toInt()),
-                floatArrayOf(0f, 0.35f, 0.7f, 1f), Shader.TileMode.CLAMP)
-        } else {
-            unit = minOf(w, h) * 0.025f
-            shellRect.set(unit * 0.5f, unit * 0.5f, w - unit * 0.5f, h - unit * 0.5f)
-            shellPaint.shader = LinearGradient(0f, 0f, 0f, h, lighten(shellColor, 0.08f), shade(shellColor, 0.86f), Shader.TileMode.CLAMP)
-            rimPaint.color = shade(shellColor, 0.42f); rimPaint.strokeWidth = unit * 0.9f
-            bezelPaint.color = 0xFF111114.toInt()
-            bezelEdge.color = 0x30FFFFFF; bezelEdge.strokeWidth = maxOf(1f, density)
+            hingePaint.shader = LinearGradient(0f, geo.hingeY - geo.hingeH / 2, 0f, geo.hingeY + geo.hingeH / 2,
+                intArrayOf(shade(shellColor, 0.55f), lighten(shellColor, 0.22f), shellColor, shade(shellColor, 0.5f)),
+                floatArrayOf(0f, 0.3f, 0.6f, 1f), Shader.TileMode.CLAMP)
+            seamPaint.color = if (darkShell) 0xFF050506.toInt() else shade(shellColor, 0.4f)
+            seamPaint.strokeWidth = unit * 0.35f
         }
-        lcdEdge.strokeWidth = maxOf(1.5f, density)
+        ledGlow.shader = if (ledR > 0f) android.graphics.RadialGradient(ledX, ledY, ledR * 3.4f,
+            0x8855FF55.toInt(), 0x0055FF55, Shader.TileMode.CLAMP) else null
+        // rótulos sobre la carcasa (START, SELECT, POWER, MIC)
+        shellLabel.color = if (luminance(shellColor) > 150) shade(shellColor, 0.35f) else lighten(shellColor, 0.55f)
+        shellLabelShadow.color = alpha(shade(shellColor, 0.45f), 0xA0)
+        brandPaint.color = if (luminance(shellColor) > 170) shade(shellColor, 0.2f) else 0xFFD2D2DA.toInt()
+        // botones en relieve; rótulos y flechas grabados (claros si los botones son oscuros)
+        val darkKeys = luminance(buttonColor) < 100
+        keyEdge.strokeWidth = maxOf(1.5f, unit * 0.16f)
+        arrowStroke.color = if (darkKeys) lighten(buttonColor, 0.4f) else shade(buttonColor, 0.62f)
+        arrowStroke.strokeWidth = maxOf(1.5f, padR * 0.035f)
+        engrave.color = if (darkKeys) lighten(buttonColor, 0.7f) else shade(buttonColor, 0.58f)
+        engraveLight.color = if (darkKeys) 0xB0000000.toInt() else alpha(lighten(buttonColor, 0.5f), 0xB0)
         capEdge.strokeWidth = maxOf(1f, density * 0.8f)
-        // botones planos: cara del color de los botones, canto fino y rótulo claro (u oscuro)
-        val lightKeys = luminance(buttonColor) > 140
-        keyEdge.color = if (lightKeys) alpha(shade(buttonColor, 0.7f), 0xC0) else alpha(lighten(buttonColor, 0.14f), 0xC0)
-        keyEdge.strokeWidth = maxOf(1f, density * 1.1f)
-        keyPressed.color = if (lightKeys) 0x22000000 else 0x1FFFFFFF
-        keyLabel.color = if (lightKeys) 0xFF2A2B30.toInt() else 0xFFEDEDF1.toInt()
-        arrowStroke.color = keyLabel.color
-        shellLabel.color = if (luminance(shellColor) > 150) shade(shellColor, 0.35f) else lighten(shellColor, 0.72f)
-        brandPaint.color = if (luminance(shellColor) > 150) shade(shellColor, 0.6f) else lighten(shellColor, 0.55f)
         toolIcon = if (skin && luminance(shellColor) > 160) 0xFF3C3F46.toInt() else 0xFFE4E4EA.toInt()
-        mutedIcon = if (luminance(shellColor) > 150) shade(shellColor, 0.55f) else lighten(shellColor, 0.32f)
         toolPaint.color = if (skin) 0x30000000 else 0x30FFFFFF
         toolOn.color = if (skin) 0x60000000 else 0x60FFFFFF
     }
@@ -349,6 +374,14 @@ class GamepadView(context: Context) : View(context) {
     // ------------------------------------------------------------------ dibujo
 
     override fun onDraw(canvas: Canvas) {
+        if (split) {
+            // casi transparentes para no tapar el juego; más visibles mientras se pulsa uno
+            val alpha = if (toolDown >= 0) 200 else 64
+            val save = canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), alpha)
+            drawCapsules(canvas); for (t in tools) drawTool(canvas, t)
+            canvas.restoreToCount(save)
+            return
+        }
         if (floating) drawConsole(canvas) else if (skin) drawLandscapeShell(canvas)
         drawCapsules(canvas)
         for (t in tools) drawTool(canvas, t)
@@ -364,62 +397,100 @@ class GamepadView(context: Context) : View(context) {
         }
     }
 
-    /** Carátula desenfocada a pantalla completa (recortada para llenar), o un degradado suave. */
-    private fun drawBackdrop(canvas: Canvas) {
-        val b = backdrop
-        if (b == null) { canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), gradientBackdrop); return }
-        val scale = maxOf(width.toFloat() / b.width, height.toFloat() / b.height)
-        val bw = b.width * scale; val bh = b.height * scale
-        drawRect.set((width - bw) / 2, (height - bh) / 2, (width + bw) / 2, (height + bh) / 2)
-        canvas.drawBitmap(b, null, drawRect, backdropPaint)
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), veil)
+    /** Cuerpo de la carcasa: degradado, canto oscuro y brillo en el interior del canto. */
+    private fun drawShellBody(canvas: Canvas) {
+        val radius = shellRect.width().coerceAtMost(shellRect.height()) * 0.085f
+        canvas.drawRoundRect(shellRect, radius, radius, shellPaint)
+        canvas.drawRoundRect(shellRect, radius, radius, rimPaint)
+        val inset = rimPaint.strokeWidth * 0.67f
+        drawRect.set(shellRect.left + inset, shellRect.top + inset, shellRect.right - inset, shellRect.bottom - inset)
+        canvas.drawRoundRect(drawRect, radius * 0.8f, radius * 0.8f, glossPaint)
     }
 
-    /** La consola vertical: fondo, botones laterales, sombra, cuerpo, altavoz, marcos y ranura. */
-    private fun drawConsole(canvas: Canvas) {
-        val save = canvas.save()
-        clipScreens(canvas)
-        drawBackdrop(canvas)
-        val d = geo.device
-        val u = d.width(); val hd = d.height()
-        val radius = u * 0.105f
-        // botones de volumen y encendido asomando por los cantos
-        val keyW = u * 0.018f
-        fun sideKey(left: Boolean, from: Float, to: Float) {
-            val x = if (left) d.left - keyW * 0.55f else d.right - keyW * 0.45f
-            drawRect.set(x, d.top + hd * from, x + keyW, d.top + hd * to)
-            canvas.drawRoundRect(drawRect, keyW / 2, keyW / 2, sideKeyPaint)
-        }
-        sideKey(true, 0.145f, 0.285f); sideKey(true, 0.30f, 0.42f); sideKey(false, 0.28f, 0.36f)
-        // sombra desplazada abajo a la izquierda, como si flotara sobre el fondo
-        drawRect.set(d); drawRect.offset(-u * 0.028f, u * 0.032f)
-        canvas.drawRoundRect(drawRect, radius, radius, bodyShadow)
-        canvas.drawRoundRect(d, radius, radius, shellPaint)
-        drawRect.set(d); drawRect.inset(rimPaint.strokeWidth / 2, rimPaint.strokeWidth / 2)
-        canvas.drawRoundRect(drawRect, radius, radius, rimPaint)
-        // franja superior: cámara, sensores y rejilla del altavoz
-        val stripY = d.top + u * 0.066f
-        for ((x, r) in arrayOf(0.15f to 0.012f, 0.217f to 0.021f, 0.293f to 0.015f, 0.343f to 0.011f,
-            0.69f to 0.021f, 0.77f to 0.012f)) {
-            canvas.drawCircle(d.left + u * x, stripY, u * r, holePaint)
-            if (r > 0.018f) canvas.drawCircle(d.left + u * x, stripY, u * r, holeRing)
-        }
-        drawRect.set(d.left + u * 0.42f, stripY - u * 0.008f, d.left + u * 0.58f, stripY + u * 0.008f)
-        canvas.drawRoundRect(drawRect, u * 0.008f, u * 0.008f, holePaint)
-        // marcos de las pantallas
-        val br = u * 0.02f
-        for (b in arrayOf(geo.upperBezel, geo.lowerBezel)) {
-            canvas.drawRoundRect(b, br, br, bezelPaint)
-            canvas.drawRoundRect(b, br, br, bezelEdge)
-        }
-        // altavoces a los lados de la pantalla superior
-        val sy = geo.upperBezel.centerY()
-        for (x in floatArrayOf(d.left + u * 0.038f, d.right - u * 0.038f))
-            for (i in -1..1) canvas.drawCircle(x, sy + i * u * 0.034f, u * 0.0085f, holePaint)
+    /** Marco con sombra, reflejo diagonal arriba a la derecha y canto fino. */
+    private fun drawBezel(canvas: Canvas, r: RectF, rTop: Float, rBottom: Float) {
+        shape.reset()
+        shape.addRoundRect(r, floatArrayOf(rTop, rTop, rTop, rTop, rBottom, rBottom, rBottom, rBottom), Path.Direction.CW)
+        canvas.save(); canvas.translate(0f, unit * 0.2f); canvas.drawPath(shape, dropShadow); canvas.restore()
+        canvas.drawPath(shape, bezelPaint)
+        canvas.drawPath(shape, bezelEdge)
+        canvas.save()
+        canvas.clipPath(shape)
+        val shine = Path()
+        shine.moveTo(r.left + r.width() * 0.52f, r.top); shine.lineTo(r.right, r.top)
+        shine.lineTo(r.right, r.top + r.height() * 0.42f); shine.close()
+        canvas.drawPath(shine, bezelShine)
+        canvas.restore()
+    }
+
+    private fun drawLcdEdges(canvas: Canvas) {
         for (r in arrayOf(geo.upper, geo.lower)) {
             drawRect.set(r); drawRect.inset(-lcdEdge.strokeWidth / 2, -lcdEdge.strokeWidth / 2)
             canvas.drawRect(drawRect, lcdEdge)
         }
+    }
+
+    private fun drawBrand(canvas: Canvas, cx: Float, top: Float, strip: Float) {
+        if (strip < unit) return
+        brandPaint.textSize = strip * 0.46f
+        canvas.drawText("KNDS", cx, top + strip * 0.52f + brandPaint.textSize * 0.36f, brandPaint)
+    }
+
+    /** LED verde de encendido con su halo y el rótulo POWER a la izquierda. */
+    private fun drawLed(canvas: Canvas) {
+        if (ledR <= 0f) return
+        canvas.drawCircle(ledX, ledY, ledR * 3.4f, ledGlow)
+        canvas.drawCircle(ledX, ledY, ledR, ledPaint)
+        val size = ledR * 2.4f
+        shellLabel.textSize = size; shellLabelShadow.textSize = size
+        shellLabel.textAlign = Paint.Align.RIGHT; shellLabelShadow.textAlign = Paint.Align.RIGHT
+        val tx = ledX - ledR * 2.4f; val ty = ledY + size * 0.36f
+        canvas.drawText("POWER", tx, ty + maxOf(1f, size * 0.06f), shellLabelShadow)
+        canvas.drawText("POWER", tx, ty, shellLabel)
+        shellLabel.textAlign = Paint.Align.LEFT; shellLabelShadow.textAlign = Paint.Align.LEFT
+    }
+
+    /** Agujero hundido en la carcasa: sombra oscura y un filo claro debajo. */
+    private fun hole(canvas: Canvas, x: Float, y: Float, r: Float) {
+        canvas.drawCircle(x, y + r * 0.35f, r, holeLight)
+        canvas.drawCircle(x, y, r, holePaint)
+    }
+
+    /**
+     * La consola plegable vertical: cuerpo, tapa con la pantalla superior, los altavoces a sus
+     * lados y el logotipo; la bisagra con el micrófono; la base con la pantalla táctil y el LED.
+     */
+    private fun drawConsole(canvas: Canvas) {
+        val save = canvas.save()
+        clipScreens(canvas)
+        drawShellBody(canvas)
+        val d = geo.device
+        val u = d.width()
+        // bisagra a lo ancho: junta entre tapa y base, y los dos cilindros en los extremos
+        val hy = geo.hingeY; val hh = geo.hingeH
+        canvas.drawLine(shellRect.left + rimPaint.strokeWidth, hy, shellRect.right - rimPaint.strokeWidth, hy, seamPaint)
+        val barrelW = u * 0.26f
+        for (x0 in floatArrayOf(shellRect.left + rimPaint.strokeWidth * 0.6f, shellRect.right - rimPaint.strokeWidth * 0.6f - barrelW)) {
+            drawRect.set(x0, hy - hh / 2, x0 + barrelW, hy + hh / 2)
+            canvas.save(); canvas.translate(0f, unit * 0.25f)
+            canvas.drawRoundRect(drawRect, hh / 2, hh / 2, dropShadow); canvas.restore()
+            canvas.drawRoundRect(drawRect, hh / 2, hh / 2, hingePaint)
+            canvas.drawRoundRect(drawRect, hh / 2, hh / 2, seamPaint)
+        }
+        // marcos: el superior con el logotipo en su franja inferior; el táctil, fino
+        val ub = geo.upperBezel; val lb = geo.lowerBezel
+        drawBezel(canvas, ub, ub.height() * 0.05f, ub.height() * 0.11f)
+        drawBezel(canvas, lb, lb.height() * 0.04f, lb.height() * 0.04f)
+        drawLcdEdges(canvas)
+        drawBrand(canvas, ub.centerX(), geo.upper.bottom.toFloat(), ub.bottom - geo.upper.bottom)
+        // altavoces de la DS a los lados de la pantalla superior
+        val gx = (ub.left - d.left) / 2
+        val gy = geo.upper.centerY().toFloat()
+        val hr = u * 0.0085f; val step = u * 0.026f
+        for (cx in floatArrayOf(d.left + gx, d.right - gx))
+            for (row in -2..2) for (col in -1..1)
+                if (abs(row) + abs(col) < 3) hole(canvas, cx + col * step * 0.62f, gy + row * step, hr)
+        drawLed(canvas)
         canvas.restoreToCount(save)
     }
 
@@ -427,46 +498,54 @@ class GamepadView(context: Context) : View(context) {
     private fun drawLandscapeShell(canvas: Canvas) {
         val save = canvas.save()
         clipScreens(canvas)
-        val radius = unit * 3.4f
-        canvas.drawRoundRect(shellRect, radius, radius, shellPaint)
-        canvas.drawRoundRect(shellRect, radius, radius, rimPaint)
+        drawShellBody(canvas)
         val up = geo.upper; val lo = geo.lower
         val ws = up.width().toFloat(); val hs = up.height().toFloat()
         drawRect.set(up.left - ws * ScreenLayout.LAND_SIDE, up.top - hs * ScreenLayout.LAND_TOP,
             up.right + ws * ScreenLayout.LAND_SIDE, lo.bottom + hs * ScreenLayout.LAND_BOTTOM)
-        canvas.drawRoundRect(drawRect, hs * 0.08f, hs * 0.08f, bezelPaint)
-        canvas.drawRoundRect(drawRect, hs * 0.08f, hs * 0.08f, bezelEdge)
-        val strip = hs * ScreenLayout.LAND_BOTTOM
-        if (strip >= unit) {
-            brandPaint.textSize = strip * 0.5f
-            canvas.drawText("KNDS", up.centerX().toFloat(), lo.bottom + strip * 0.55f + brandPaint.textSize * 0.36f, brandPaint)
+        drawBezel(canvas, RectF(drawRect), hs * 0.06f, hs * 0.12f)
+        // la franja entre las dos pantallas imita la bisagra de la consola
+        val gapTop = up.bottom.toFloat(); val gapBottom = lo.top.toFloat()
+        if (gapBottom - gapTop > 2f) {
+            seamPaint.color = 0xFF050506.toInt(); seamPaint.strokeWidth = maxOf(1f, (gapBottom - gapTop) * 0.12f)
+            val my = (gapTop + gapBottom) / 2
+            canvas.drawLine(up.left.toFloat(), my, up.right.toFloat(), my, seamPaint)
         }
-        for (r in arrayOf(up, lo)) {
-            drawRect.set(r); drawRect.inset(-lcdEdge.strokeWidth / 2, -lcdEdge.strokeWidth / 2)
-            canvas.drawRect(drawRect, lcdEdge)
-        }
+        drawLcdEdges(canvas)
+        drawBrand(canvas, up.centerX().toFloat(), lo.bottom.toFloat(), hs * ScreenLayout.LAND_BOTTOM)
+        drawLed(canvas)
         canvas.restoreToCount(save)
     }
 
-    /** Tecla plana: sombra corta debajo, cara del color de los botones y canto fino; al pulsar se hunde. */
-    private inline fun key(canvas: Canvas, down: Boolean, face: Int, corner: Float, content: () -> Unit) {
-        val depth = maxOf(1.5f, unit * 0.22f)
+    /** Pieza en relieve: sombra, cara con degradado y canto oscuro; al pulsar se hunde. */
+    private inline fun key(canvas: Canvas, down: Boolean, face: Int, corner: Float, bounds: RectF, content: () -> Unit) {
+        val depth = maxOf(1.5f, unit * 0.28f)
         val effect = if (corner > 0f) CornerPathEffect(corner) else null
-        keyShadow.pathEffect = effect; keyFace.pathEffect = effect; keyEdge.pathEffect = effect; keyPressed.pathEffect = effect
-        if (!down) { canvas.save(); canvas.translate(0f, depth); canvas.drawPath(shape, keyShadow); canvas.restore() }
+        dropShadow.pathEffect = effect; keyFace.pathEffect = effect; keyEdge.pathEffect = effect
+        if (!down) { canvas.save(); canvas.translate(0f, depth); canvas.drawPath(shape, dropShadow); canvas.restore() }
         canvas.save()
         if (down) canvas.translate(0f, depth * 0.6f)
-        keyFace.color = face
+        keyFace.shader = LinearGradient(0f, bounds.top, 0f, bounds.bottom,
+            if (down) shade(face, 0.84f) else lighten(face, 0.16f), if (down) shade(face, 0.76f) else shade(face, 0.86f),
+            Shader.TileMode.CLAMP)
         canvas.drawPath(shape, keyFace)
-        if (down) canvas.drawPath(shape, keyPressed)
+        keyEdge.color = shade(face, 0.55f)
         canvas.drawPath(shape, keyEdge)
-        keyShadow.pathEffect = null; keyFace.pathEffect = null; keyEdge.pathEffect = null; keyPressed.pathEffect = null
+        dropShadow.pathEffect = null; keyFace.pathEffect = null; keyEdge.pathEffect = null
         content()
         canvas.restore()
     }
 
+    /** Texto grabado: filo claro (u oscuro) debajo y el rótulo encima. */
+    private fun engraved(canvas: Canvas, label: String, cx: Float, cy: Float, size: Float) {
+        engrave.textSize = size; engraveLight.textSize = size
+        val y = cy + size * 0.36f
+        canvas.drawText(label, cx, y + maxOf(1f, size * 0.05f), engraveLight)
+        canvas.drawText(label, cx, y, engrave)
+    }
+
     private fun drawDpad(canvas: Canvas) {
-        val arm = padR * 0.36f
+        val arm = padR * 0.34f
         if (!skin) {
             val cr = arm * 0.35f
             for ((mask, r) in dpadArms(arm)) canvas.drawRoundRect(r, cr, cr, if ((pressed and mask) != 0) ghostOn else ghostFill)
@@ -480,18 +559,19 @@ class GamepadView(context: Context) : View(context) {
         shape.lineTo(padX - arm, padY + arm); shape.lineTo(padX - padR, padY + arm)
         shape.lineTo(padX - padR, padY - arm); shape.lineTo(padX - arm, padY - arm)
         shape.close()
-        // la cruceta es algo más oscura que los botones, como en la carcasa de referencia
-        val face = if (luminance(buttonColor) > 140) shade(buttonColor, 0.9f) else shade(buttonColor, 0.72f)
-        key(canvas, false, face, arm * 0.3f) {
-            val cr = arm * 0.3f
-            for ((mask, r) in dpadArms(arm)) if ((pressed and mask) != 0) canvas.drawRoundRect(r, cr, cr, keyPressed)
-            // rayas finas en cada brazo: | arriba y abajo, — a los lados
-            arrowStroke.strokeWidth = maxOf(2f, padR * 0.045f)
-            val a = padR * 0.82f; val b = padR * 0.52f
-            canvas.drawLine(padX, padY - a, padX, padY - b, arrowStroke)
-            canvas.drawLine(padX, padY + b, padX, padY + a, arrowStroke)
-            canvas.drawLine(padX - a, padY, padX - b, padY, arrowStroke)
-            canvas.drawLine(padX + b, padY, padX + a, padY, arrowStroke)
+        drawRect.set(padX - padR, padY - padR, padX + padR, padY + padR)
+        key(canvas, false, buttonColor, arm * 0.35f, RectF(drawRect)) {
+            val cr = arm * 0.35f
+            for ((mask, r) in dpadArms(arm)) if ((pressed and mask) != 0) canvas.drawRoundRect(r, cr, cr, pressShade)
+            // flechas huecas y hundimiento circular en el centro
+            arrowStroke.strokeWidth = maxOf(1.5f, padR * 0.035f)
+            val a = arm * 0.5f; val off = padR * 0.68f
+            triangle(canvas, padX, padY - off, a, 0, arrowStroke)
+            triangle(canvas, padX, padY + off, a, 2, arrowStroke)
+            triangle(canvas, padX - off, padY, a, 3, arrowStroke)
+            triangle(canvas, padX + off, padY, a, 1, arrowStroke)
+            canvas.drawCircle(padX, padY, arm * 0.62f, pressShade)
+            canvas.drawCircle(padX, padY, arm * 0.62f, arrowStroke)
         }
     }
 
@@ -537,27 +617,24 @@ class GamepadView(context: Context) : View(context) {
         }
         when (b.shape) {
             Shape.DOT -> {
-                val dotR = r.height() * 0.3f
+                // botón redondo pequeño en relieve y el rótulo sobre la carcasa
+                val dotR = r.height() * 0.32f
                 val dotX = r.left + dotR * 1.2f
                 shape.reset(); shape.addCircle(dotX, r.centerY(), dotR, Path.Direction.CW)
-                key(canvas, on, shade(buttonColor, 0.85f), 0f) {}
-                shellLabel.textSize = r.height() * 0.3f
-                canvas.drawText(b.label, dotX + dotR * 1.9f, r.centerY() + shellLabel.textSize * 0.36f, shellLabel)
+                key(canvas, on, buttonColor, 0f, RectF(dotX - dotR, r.centerY() - dotR, dotX + dotR, r.centerY() + dotR)) {}
+                val size = r.height() * 0.32f
+                shellLabel.textSize = size; shellLabelShadow.textSize = size
+                val tx = dotX + dotR * 1.8f; val ty = r.centerY() + size * 0.36f
+                canvas.drawText(b.label, tx, ty + maxOf(1f, size * 0.06f), shellLabelShadow)
+                canvas.drawText(b.label, tx, ty, shellLabel)
             }
             Shape.ROUND -> {
                 shape.reset(); shape.addCircle(r.centerX(), r.centerY(), r.width() / 2, Path.Direction.CW)
-                key(canvas, on, buttonColor, 0f) {
-                    keyLabel.textSize = r.width() * 0.5f
-                    canvas.drawText(b.label, r.centerX(), r.centerY() + keyLabel.textSize * 0.36f, keyLabel)
-                }
+                key(canvas, on, buttonColor, 0f, r) { engraved(canvas, b.label, r.centerX(), r.centerY(), r.width() * 0.42f) }
             }
             Shape.PILL -> {
-                val corner = r.height() * (if (floating) 0.3f else 0.5f)
-                shape.reset(); shape.addRoundRect(r, corner, corner, Path.Direction.CW)
-                key(canvas, on, buttonColor, 0f) {
-                    keyLabel.textSize = r.height() * 0.6f
-                    canvas.drawText(b.label, r.centerX(), r.centerY() + keyLabel.textSize * 0.36f, keyLabel)
-                }
+                shape.reset(); shape.addRoundRect(r, r.height() / 2, r.height() / 2, Path.Direction.CW)
+                key(canvas, on, buttonColor, 0f, r) { engraved(canvas, b.label, r.centerX(), r.centerY(), r.height() * 0.5f) }
             }
         }
     }
@@ -566,10 +643,13 @@ class GamepadView(context: Context) : View(context) {
         val r = t.rect
         if (t.action == ACT_MIC) {
             if (floating) {
-                // ranura entre las pantallas: se ilumina mientras se sopla
-                val rr = r.height() / 2
-                slitPaint.alpha = 255
-                canvas.drawRoundRect(r, rr, rr, if (micHeld) iconFill.apply { color = ACCENT } else slitPaint)
+                // micrófono en el centro de la bisagra: tres agujeros que se iluminan al soplar
+                val hr = r.height() * 0.22f
+                micHole.color = ACCENT
+                for (i in -1..1) {
+                    val x = r.centerX() + i * r.width() * 0.3f
+                    if (micHeld) canvas.drawCircle(x, r.centerY(), hr, micHole) else hole(canvas, x, r.centerY(), hr)
+                }
                 return
             }
             // rejilla del micrófono: píldora oscura con agujeros y el rótulo MIC
@@ -689,7 +769,60 @@ class GamepadView(context: Context) : View(context) {
 
     private fun emit() = onInput(pressed, touching, touchX, touchY)
 
+    private fun cancelMenuPress() {
+        if (menuPending) { removeCallbacks(openMenu); menuPending = false }
+    }
+
+    /**
+     * Pantalla completa: la mitad táctil manda el lápiz y la barra de accesos funciona como
+     * siempre; mantener pulsada la mitad superior ~0,6 s también abre el menú (y el gesto de atrás).
+     */
+    private fun splitTouch(e: MotionEvent): Boolean {
+        val action = e.actionMasked
+        var touch = false
+        var tool = -1
+        if (action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL) {
+            for (i in 0 until e.pointerCount) {
+                if (action == MotionEvent.ACTION_POINTER_UP && i == e.actionIndex) continue
+                val x = e.getX(i); val y = e.getY(i)
+                if (touchScreen.contains(x.toInt(), y.toInt())) {
+                    touch = true
+                    touchX = ((x - touchScreen.left) * 256f / touchScreen.width()).toInt().coerceIn(0, 255)
+                    touchY = ((y - touchScreen.top) * 192f / touchScreen.height()).toInt().coerceIn(0, 191)
+                } else toolAt(x, y).let { if (it >= 0) tool = it }
+            }
+        }
+        // los accesos actúan al soltar, igual que con los controles
+        if (tool != toolDown) {
+            val released = action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP
+            if (toolDown >= 0 && released) onAction(toolDown)
+            if (tool >= 0) performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            toolDown = tool
+            invalidate()
+        }
+        val idx = e.actionIndex
+        when (action) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val x = e.getX(idx); val y = e.getY(idx)
+                if (!touchScreen.contains(x.toInt(), y.toInt()) && toolAt(x, y) < 0 && !menuPending) {
+                    menuPending = true; menuDownX = x; menuDownY = y
+                    postDelayed(openMenu, 600)
+                }
+            }
+            MotionEvent.ACTION_MOVE -> if (menuPending) {
+                val slop = 16 * resources.displayMetrics.density
+                val moved = (0 until e.pointerCount).none { hypot(e.getX(it) - menuDownX, e.getY(it) - menuDownY) < slop }
+                if (moved) cancelMenuPress()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_UP -> cancelMenuPress()
+        }
+        pressed = 0
+        if (touch != touching || touch) { touching = touch; emit() }
+        return true
+    }
+
     fun releaseInputs() {
+        cancelMenuPress()
         pressed = 0; touching = false; toolDown = -1
         if (micHeld) { micHeld = false; onMic(false) }
         emit(); invalidate()
@@ -697,6 +830,7 @@ class GamepadView(context: Context) : View(context) {
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (split) return splitTouch(e)
         val action = e.actionMasked
         var mask = 0
         var tool = -1
